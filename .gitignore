@@ -162,3 +162,4 @@ cython_debug/
 google
 lightning_logs
 data
+model_path

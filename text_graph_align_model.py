@@ -1,9 +1,14 @@
-"""
-This is main class file
-"""
+
+import numpy as np
 import argparse
 import pandas as pd
+from sklearn.metrics import f1_score
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from dgl.data.ppi import PPIDataset
+from dgl.dataloading import GraphDataLoader
+import dgl.nn as dglnn
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
@@ -24,7 +29,40 @@ from model_training import T5FineTuner # src.
 torch.cuda.empty_cache()
 pl.seed_everything(84)
 
+class GAT(nn.Module):
+    def __init__(self, in_size, hid_size, out_size, heads):
+        super().__init__()
+        self.gat_layers = nn.ModuleList()
 
+        perious_h = heads[0]
+        self.gat_layers.append(
+            dglnn.GATConv(in_size, hid_size, perious_h, activation=F.elu)
+        )
+
+        for h in heads[1:]:
+            self.gat_layers.append(
+                dglnn.GATConv(
+                    hid_size * perious_h,
+                    hid_size,
+                    h,
+                    residual=True,
+                    activation=F.elu,
+                )
+            )
+            perious_h = h
+
+        self.liner = nn.Linear(hid_size,out_size)
+
+    def forward(self, g, inputs):
+        h = inputs # [3144, 50])
+        for i, layer in enumerate(self.gat_layers):
+            h = layer(g, h) # [3144, 4, 256] 
+            if i == 2:  # last layer
+                h = h.mean(1) # [3144, 121]
+            else:  # other layer(s)
+                h = h.flatten(-2) # [3144, 1024] 
+        return h
+    
 class T5FineTune:
     """
     This class is using for fine-tune T5 based models
@@ -167,51 +205,3 @@ class T5FineTune:
             for g in generated_ids
         ]
         return preds
-
-
-if __name__ == "__main__":
-    args_dict = dict(
-        output_dir="outputs",  # path to save the checkpoints
-        source_max_token_length=256,
-        target_max_token_length=256,
-        batch_size=16,
-        max_epochs=2,
-        learning_rate=3e-4,
-        weight_decay=0.1,
-        adam_epsilon=9e-7,
-        warmup_steps=0,
-        gradient_accumulation_steps=16,
-        use_gpu=True,
-        n_gpu=1,
-        early_stop_callback=False,
-        early_stopping_patience_epochs=0,
-        precision=32,
-        logger="default",
-        dataloader_num_workers=2,
-        save_only_last_epoch=False,
-        fp_16=False,  # if you want to enable 16-bit training then install apex and set this to true
-        opt_level='O1',
-        max_grad_norm=1.0,  # if you enable 16-bit training then set this to a sensible value, 0.5 is a good default
-        seed=42,
-    )
-    # args_dict.update({'output_dir': '../outputs_flan-t5', 'max_epochs': 2})
-    arguments = argparse.Namespace(**args_dict)
-
-    train_data = pd.read_csv("./data/train.csv")
-    val_data = pd.read_csv("./data/val.csv")
-    test_data = pd.read_csv("./data/test.csv")
-
-    # Initiate and load pretrained models
-    model = T5FineTune("t5","model_path/t5-small") # 
-    # model = T5FineTune("mt5", "model_path/mt5-small") # mt5-base
-    # model = T5FineTune("byt5", "google/byt5-base")
-    # model = T5FineTune("flan-t5", "google/flan-ul2")
-    # model = T5FineTune("t0", "bigscience/T0_3B")
-
-    # train
-    model.train(train_df=train_data,  # pandas dataframe with 2 columns: source_text & target_text
-                eval_df=val_data,  # pandas dataframe with 2 columns: source_text & target_text
-                args=arguments
-                )
-
-    model.predict("Merhaba, nasılsın?")
