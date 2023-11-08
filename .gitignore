@@ -163,3 +163,5 @@ google
 lightning_logs
 data
 model_path
+whl
+dgl_env

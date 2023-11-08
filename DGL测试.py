@@ -6,8 +6,13 @@ import torch.nn.functional as F
 from dgl.data.ppi import PPIDataset
 from dgl.dataloading import GraphDataLoader
 from sklearn.metrics import f1_score
-
+from torch.utils.data import Dataset, DataLoader
 import dgl
+from torch.nn import MultiheadAttention
+
+
+multihead_attn = nn.MultiheadAttention(embed_dim, num_heads)
+# attn_output, attn_output_weights = multihead_attn(query, key, value)
 
 class my_data_set:
 
@@ -21,10 +26,12 @@ class my_data_set:
         g2.ndata['label'] = torch.tensor([[0,1,0],[1,0,1],[1,1,1]])
         g2 = dgl.add_self_loop(g2)
         self.bg = [g1, g2]
+        self.label = torch.tensor([[0,1,0],[1,0,1]])
 
     def __getitem__(self, index: int):
         g_i = self.bg[index]
-        return g_i
+        l_i = self.label[index]
+        return g_i,l_i
     
     def __len__(self):
         """ returns length of data """
@@ -33,6 +40,16 @@ class my_data_set:
     @property
     def num_labels(self):
         return 3
+    
+    @staticmethod
+    def collate_fn(batch):
+        # graphs = [x[0].add_self_loop() for x in batch]
+        graphs = [x[0] for x in batch]
+        labels = [x[1] for x in batch]
+        batch_g = dgl.batch(graphs)
+        labels = torch.stack(labels,dim=0)
+        # labels = torch.cat(labels, dim=0)
+        return batch_g, labels
 
 class GAT(nn.Module):
     def __init__(self, in_size, hid_size, out_size, heads):
@@ -65,7 +82,10 @@ class GAT(nn.Module):
             h = h.flatten(-2)
 
         h = self.liner(h)
-        return h
+        g.ndata['h'] = h
+        # Calculate graph representation by average readout.
+        hg = dgl.mean_nodes(g, 'h')
+        return hg
     
 def train(train_dataloader, device, model):
     # define loss function and optimizer
@@ -78,10 +98,10 @@ def train(train_dataloader, device, model):
         logits = []
         total_loss = 0
         # mini-batch loop
-        for batch_id, batched_graph in enumerate(train_dataloader):
+        for batch_id, (batched_graph,batched_labels) in enumerate(train_dataloader):
+            labels = batched_labels.float().to(device)
             batched_graph = batched_graph.to(device)
             features = batched_graph.ndata["feat"].float()
-            labels = batched_graph.ndata["label"].float()
             logits = model(batched_graph, features)
             loss = loss_fcn(logits, labels)
             optimizer.zero_grad()
@@ -99,13 +119,15 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # load and preprocess datasets
     train_dataset = my_data_set()
-    features = train_dataset[0].ndata["feat"]
+    # features = train_dataset[0].ndata["feat"]
     # create GAT model
-    in_size = features.shape[1]
+    in_size = 10
     out_size = train_dataset.num_labels
     model = GAT(in_size, 256, out_size, heads=[4, 4, 6]).to(device)
 
     # model training
     print("Training...")
-    train_dataloader = GraphDataLoader(train_dataset, batch_size=2)
+    # train_dataloader = GraphDataLoader(train_dataset, batch_size=2)
+    train_dataloader = DataLoader(train_dataset, batch_size=2,
+                                  shuffle= False,collate_fn=train_dataset.collate_fn)
     train(train_dataloader, device, model)

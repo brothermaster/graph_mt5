@@ -30,7 +30,7 @@ class T5FineTune:
     This class is using for fine-tune T5 based models
     """
 
-    def __init__(self, model_type="t5", model_name="t5-base") -> None:
+    def __init__(self, model_type="t5", model_name="t5-base",use_gpu=True) -> None:
         """ Initiates T5FineTune class and loads T5, MT5, ByT5, t0, or flan-t5 model for fine-tuning """
 
         if model_type in ["t5", "flan-t5"]:
@@ -53,7 +53,15 @@ class T5FineTune:
             self.model = AutoModelForSeq2SeqLM.from_pretrained(
                 f"{model_name}", return_dict=True
             )
-
+        if use_gpu:
+            if torch.cuda.is_available():
+                self.device = torch.device("cuda")
+            else:
+                raise "exception ---> no gpu found. set use_gpu=False, to use CPU"
+        else:
+            self.device = torch.device("cpu")
+        self.model = self.model.to(self.device)
+        
     def train(
             self,
             train_df: pd.DataFrame,
@@ -209,9 +217,9 @@ if __name__ == "__main__":
     # model = T5FineTune("t0", "bigscience/T0_3B")
 
     # train
-    model.train(train_df=train_data,  # pandas dataframe with 2 columns: source_text & target_text
-                eval_df=val_data,  # pandas dataframe with 2 columns: source_text & target_text
-                args=arguments
-                )
+    # model.train(train_df=train_data,  # pandas dataframe with 2 columns: source_text & target_text
+    #             eval_df=val_data,  # pandas dataframe with 2 columns: source_text & target_text
+    #             args=arguments
+    #             )
 
     model.predict("Merhaba, nasılsın?")
