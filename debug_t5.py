@@ -31,3 +31,4 @@ input_ids = torch.randint(0,100,size=[10,6])
 decoder_input_ids = torch.randint(0,100,size=[10,6])
 output =  modified_model(input_ids=input_ids,decoder_input_ids=decoder_input_ids)
 print()
+#   "feed_forward_proj": "relu",

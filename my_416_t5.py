@@ -254,37 +254,83 @@ class T5LayerNorm(nn.Module):
 
         return self.weight * hidden_states
 
-
+# 修改
 class T5DenseReluDense(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.wi = nn.Linear(config.d_model, config.d_ff, bias=False)
-        self.wo = nn.Linear(config.d_ff, config.d_model, bias=False)
+        self.wi = nn.Linear(config.d_model, config.d_ff, bias=config.w_bias) # 增加偏置 
+        self.wo = nn.Linear(config.d_ff, config.d_model, bias=config.w_bias) # 增加偏置 
         self.dropout = nn.Dropout(config.dropout_rate)
 
+        # 增加Lower Rank Adaptation
+        self.w_lora = config.w_lora
+        if config.w_lora:
+           self.lora_wi_l1 = nn.Linear(config.d_model, config.lora_rank, bias=False)
+           self.lora_wi_l2 = nn.Linear(config.lora_rank, config.d_ff, bias=False)
+           self.lora_wo_l1 = nn.Linear(config.d_ff, config.lora_rank, bias=False)
+           self.lora_wo_l2 = nn.Linear(config.lora_rank, config.d_model, bias=False)
+           nn.init.constant_(self.lora_wi_l2.weight.data, 0)
+           nn.init.constant_(self.lora_wo_l2.weight.data, 0)
+
     def forward(self, hidden_states):
-        hidden_states = self.wi(hidden_states)
+        # 增加Lower Rank Adaptation
+        if self.w_lora:
+            hidden_states = self.wi(hidden_states) + self.lora_wi_l2(self.lora_wi_l1(hidden_states))
+        else:
+            hidden_states = self.wi(hidden_states)
+        
         hidden_states = nn.functional.relu(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.wo(hidden_states)
+
+        # 增加Lower Rank Adaptation
+        if self.w_lora:
+            hidden_states = self.wo(hidden_states) + self.lora_wo_l2(self.lora_wo_l1(hidden_states))
+        else:
+            hidden_states = self.wo(hidden_states)
         return hidden_states
 
-
+# 修改
 class T5DenseGatedGeluDense(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.wi_0 = nn.Linear(config.d_model, config.d_ff, bias=False)
-        self.wi_1 = nn.Linear(config.d_model, config.d_ff, bias=False)
-        self.wo = nn.Linear(config.d_ff, config.d_model, bias=False)
+        # 增加偏置
+        self.wi_0 = nn.Linear(config.d_model, config.d_ff, bias=config.w_bias)
+        self.wi_1 = nn.Linear(config.d_model, config.d_ff, bias=config.w_bias)
+        self.wo = nn.Linear(config.d_ff, config.d_model, bias=config.w_bias)
         self.dropout = nn.Dropout(config.dropout_rate)
         self.gelu_act = ACT2FN["gelu_new"]
 
+        # 增加Lower Rank Adaptation
+        self.w_lora = config.w_lora
+        if config.w_lora:
+           self.lora_wi_0_l1 = nn.Linear(config.d_model, config.lora_rank, bias=False)
+           self.lora_wi_0_l2 = nn.Linear(config.lora_rank, config.d_ff, bias=False)
+           self.lora_wi_1_l1 = nn.Linear(config.d_model, config.lora_rank, bias=False)
+           self.lora_wi_1_l2 = nn.Linear(config.lora_rank, config.d_ff, bias=False)
+           self.lora_wo_l1 = nn.Linear(config.d_ff, config.lora_rank, bias=False)
+           self.lora_wo_l2 = nn.Linear(config.lora_rank, config.d_model, bias=False)
+           nn.init.constant_(self.lora_wi_0_l2.weight.data, 0)
+           nn.init.constant_(self.lora_wi_1_l2.weight.data, 0)
+           nn.init.constant_(self.lora_wo_l2.weight.data, 0)
+
     def forward(self, hidden_states):
-        hidden_gelu = self.gelu_act(self.wi_0(hidden_states))
-        hidden_linear = self.wi_1(hidden_states)
+        if self.w_lora:
+            hidden_gelu = self.gelu_act(self.wi_0(hidden_states) + self.lora_wi_0_l2(self.lora_wi_0_l1(hidden_states)))
+        else:
+            hidden_gelu = self.gelu_act(self.wi_0(hidden_states))
+
+        if self.w_lora:
+            hidden_linear = self.wi_1(hidden_states) + self.lora_wi_1_l2(self.lora_wi_1_l1(hidden_states))
+        else:
+            hidden_linear = self.wi_1(hidden_states)
+
         hidden_states = hidden_gelu * hidden_linear
         hidden_states = self.dropout(hidden_states)
-        hidden_states = self.wo(hidden_states)
+
+        if self.w_lora:
+            hidden_states = self.wo(hidden_states) + self.lora_wo_l2(self.lora_wo_l1(hidden_states))
+        else:
+            hidden_states = self.wo(hidden_states)
         return hidden_states
 
 
@@ -333,7 +379,7 @@ class T5Attention(nn.Module):
         if config.w_bias:
             nn.init.constant_(self.q.bias.data, 0)
             nn.init.constant_(self.o.bias.data, 0)
-        # 增加 lower rank adapter
+        # 增加 Lower Rank Adaptation
         self.w_lora = config.w_lora
         if config.w_lora:
            self.lora_wq_l1 = nn.Linear(self.d_model, config.lora_rank, bias=False)
@@ -509,7 +555,7 @@ class T5Attention(nn.Module):
             hidden_states, self.v, key_value_states, past_key_value[1] if past_key_value is not None else None
         )
 
-        # 增加 lora
+        # 增加 Lower Rank Adaptation
         if self.w_lora:
            query_states = query_states + shape(self.lora_wq_l2(self.lora_wq_l1(hidden_states)))
            key_states   = key_states   + shape(self.lora_wk_l2(self.lora_wk_l1(hidden_states)))
@@ -1300,6 +1346,7 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         decoder_config.is_decoder = True
         decoder_config.is_encoder_decoder = False
         decoder_config.num_layers = config.num_decoder_layers
+
         # 新增
         # self.phase = config.phase # "finetune"
         decoder_config.phase = config.phase
@@ -1309,7 +1356,6 @@ class T5ForConditionalGeneration(T5PreTrainedModel):
         self.decoder = T5Stack(decoder_config, self.shared)
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
-        self.test_para = nn.Linear(config.d_model, config.vocab_size, bias=False)
         # Initialize weights and apply final processing
         self.post_init()
 
