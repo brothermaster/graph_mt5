@@ -23,12 +23,17 @@ class Classifier(nn.Module):
             return self.classify(hg)
 
 
-dataset = dgl.data.GINDataset('MUTAG', False)
-dataloader = GraphDataLoader(
-    dataset,
-    batch_size=1024,
-    drop_last=False,
-    shuffle=True)
+# dataset = dgl.data.GINDataset('MUTAG', False)
+# dataloader = GraphDataLoader(
+#     dataset,
+#     batch_size=10,
+#     drop_last=False,
+#     shuffle=True)
+dataset = dgl.data.SSTDataset()
+g = dataset[0]
+train_nid = g.nodes()
+sampler = dgl.dataloading.MultiLayerNeighborSampler([2,])
+collator = dgl.dataloading.NodeCollator(g, train_nid, sampler)
 
 # Only an example, 7 is the input feature size
 model = Classifier(7, 20, 5)

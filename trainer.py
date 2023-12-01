@@ -4,6 +4,7 @@ This is main class file
 import argparse
 import pandas as pd
 import torch
+import torch.nn as nn
 from transformers import (
     AutoTokenizer,
     AutoModelForSeq2SeqLM,
@@ -20,9 +21,31 @@ from pytorch_lightning.callbacks.progress import TQDMProgressBar
 
 from data_loader import T5DataModule # src.
 from model_training import T5FineTuner # src.
-
+from InstructorEmbedding import INSTRUCTOR
 torch.cuda.empty_cache()
 pl.seed_everything(84)
+
+nn.Transformer
+class MyT5:
+
+    def __init__(self,out_feature=512,model_name="t5-small"):
+        self.tokenizer = T5Tokenizer.from_pretrained(f"{model_name}")
+        self.model = T5ForConditionalGeneration.from_pretrained(
+            f"{model_name}", return_dict=True
+        )
+        self.model.lm_head = nn.Linear(self.model.model_dim,out_feature,bias=False)
+        print()
+    def forward(self, input_ids, attention_mask, decoder_attention_mask, labels=None):
+        """ forward step """
+        output = self.model(
+            input_ids,
+            attention_mask=attention_mask,
+            labels=labels,
+            decoder_attention_mask=decoder_attention_mask,
+        )
+
+        return output.loss, output.logits
+# MyT5()
 
 
 class T5FineTune:
@@ -165,6 +188,8 @@ class T5FineTune:
             top_p=top_p,
             top_k=top_k,
             num_return_sequences=num_return_sequences,
+            
+            output_hidden_states=True
         )
         preds = [
             self.tokenizer.decode(
@@ -210,7 +235,7 @@ if __name__ == "__main__":
     test_data = pd.read_csv("./data/test.csv")
 
     # Initiate and load pretrained models
-    model = T5FineTune("t5","model_path/t5-small") # 
+    model = T5FineTune("t5","model_path/t5-small",use_gpu=arguments.use_gpu) # 
     # model = T5FineTune("mt5", "model_path/mt5-small") # mt5-base
     # model = T5FineTune("byt5", "google/byt5-base")
     # model = T5FineTune("flan-t5", "google/flan-ul2")

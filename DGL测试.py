@@ -9,16 +9,26 @@ from sklearn.metrics import f1_score
 from torch.utils.data import Dataset, DataLoader
 import dgl
 from torch.nn import MultiheadAttention
+import urllib.request
 
+import pandas as pd
 
-multihead_attn = nn.MultiheadAttention(embed_dim, num_heads)
-# attn_output, attn_output_weights = multihead_attn(query, key, value)
+# urllib.request.urlretrieve(
+#     "https://data.dgl.ai/tutorial/dataset/members.csv", "./members.csv"
+# )
+# urllib.request.urlretrieve(
+#     "https://data.dgl.ai/tutorial/dataset/interactions.csv",
+#     "./interactions.csv",
+# )
+# nn.TransformerDecoderLayer()
+# multihead_attn = nn.MultiheadAttention(embed_dim, num_heads)
+# # attn_output, attn_output_weights = multihead_attn(query, key, value)
 
 class my_data_set:
 
     def __init__(self):
-        g1 = dgl.graph((torch.tensor([0, 1, 2]), torch.tensor([1, 2, 3])))
-        g1.ndata['feat'] = torch.ones(4,10)
+        g1 = dgl.graph((torch.tensor([0, 1, 2, 3]), torch.tensor([0, 0 ,0,0])))
+        g1.ndata['feat'] = torch.tensor([[1,1],[3,3],[2,2],[4,4]])
         g1.ndata['label'] = torch.tensor([[0,1,0],[1,0,1],[1,1,1],[0,1,1]])
         g1 = dgl.add_self_loop(g1)
         g2 = dgl.graph((torch.tensor([0, 0, 0, 1]), torch.tensor([0, 1, 2, 0])))
